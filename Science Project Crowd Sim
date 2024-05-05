@@ -1,0 +1,137 @@
+import bpy
+import heapq
+
+# Function to create a cube
+def create_cube(location, name):
+    bpy.ops.mesh.primitive_cube_add(size=1, location=location)
+    bpy.context.object.name = name  # Assign a specific name to the cube
+
+# Function to delete cube by name
+def delete_cube(name):
+    bpy.data.objects.remove(bpy.data.objects[name], do_unlink=True)
+
+# Function to get mesh objects in the scene
+def get_mesh_objects():
+    return [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
+
+# Function to perform A* pathfinding
+def astar(start, end, obstacles, walls):
+    # Define possible movement directions (12-way movement: up, down, left, right, and diagonals)
+    directions = [
+        (0, 1), (0, -1), (1, 0), (-1, 0), 
+        (1, 1), (-1, 1), (1, -1), (-1, -1),
+        (0, 2), (0, -2), (2, 0), (-2, 0),
+        (1, 2), (1, -2), (-1, 2), (-1, -2),
+        (2, 1), (2, -1), (-2, 1), (-2, -1)
+    ]
+
+    # Define heuristic function (Euclidean distance)
+    def heuristic(node):
+        return ((node[0] - end[0]) ** 2 + (node[1] - end[1]) ** 2) ** 0.5
+
+    # Initialize priority queue with start node
+    open_list = [(0, start)]
+    heapq.heapify(open_list)
+    came_from = {}
+    g_score = {start: 0}
+
+    while open_list:
+        current_cost, current_node = heapq.heappop(open_list)
+
+        if current_node == end:
+            path = []
+            while current_node in came_from:
+                path.insert(0, current_node)
+                current_node = came_from[current_node]
+            return path
+
+        for direction in directions:
+            neighbor = (current_node[0] + direction[0], current_node[1] + direction[1])
+            if neighbor in obstacles or neighbor in walls or not (0 <= neighbor[0] < grid_size[0] and 0 <= neighbor[1] < grid_size[1]):
+                continue
+            tentative_g_score = g_score[current_node] + 1
+            if neighbor not in g_score or tentative_g_score < g_score[neighbor]:
+                came_from[neighbor] = current_node
+                g_score[neighbor] = tentative_g_score
+                heapq.heappush(open_list, (tentative_g_score + heuristic(neighbor), neighbor))
+
+    return None
+
+# Function to extract obstacle positions from mesh objects
+def extract_obstacle_positions(mesh_objects):
+    obstacles = set()
+    for obj in mesh_objects:
+        mesh = obj.data
+        for vert in mesh.vertices:
+            pos = obj.matrix_world @ vert.co
+            obstacles.add((round(pos.x), round(pos.y)))
+    return obstacles
+
+# Define grid size
+grid_size = (100, 100)
+
+# Get mesh objects in the scene
+mesh_objects = get_mesh_objects()
+
+# Extract obstacle positions
+obstacle_positions = extract_obstacle_positions(mesh_objects)
+
+# Define paths with start and end points using cube names
+paths = [
+    {"start_cube_name": "Cube.004", "end_cube_name": "Cube.011"},
+    {"start_cube_name": "Cube.007", "end_cube_name": "Cube.010"},
+    {"start_cube_name": "Cube.009", "end_cube_name": "Cube.010"}
+]
+
+# Define wall start and end coordinates for multiple walls
+wall_start_end_coordinates = [((48, 73), (48, 24)), ((23, 73), (23, 24)), ((23, 24), (48, 24)), ((48, 73), (57, 73)), ((57, 73), (57, 13))]  # Example: [(wall1_start, wall1_end), (wall2_start, wall2_end), ...]
+
+# Generate wall positions for multiple walls
+wall_positions = []
+for wall_start, wall_end in wall_start_end_coordinates:
+    for x in range(min(wall_start[0], wall_end[0]), max(wall_start[0], wall_end[0]) + 1):
+        for y in range(min(wall_start[1], wall_end[1]), max(wall_start[1], wall_end[1]) + 1):
+            wall_positions.append((x, y))
+
+# Variable to keep track of previous cubes for each path
+previous_cubes = {}
+
+# Function to generate paths for each frame
+def generate_paths(scene):
+    global previous_cubes
+
+    # Get current frame number
+    current_frame = scene.frame_current
+
+    # Iterate over each path
+    for i, path in enumerate(paths):
+        # Get start and end points from cube names
+        start_point = None
+        end_point = None
+        for obj in bpy.context.scene.objects:
+            if obj.name == path["start_cube_name"]:
+                start_point = (round(obj.location.x), round(obj.location.y))
+            elif obj.name == path["end_cube_name"]:
+                end_point = (round(obj.location.x), round(obj.location.y))
+            if start_point and end_point:
+                break
+
+        # Perform pathfinding for the current path
+        path_points = astar(start_point, end_point, obstacle_positions, wall_positions)
+
+        # Delete previous cubes if exist and if path is not completed
+        if i in previous_cubes and current_frame < len(path_points):
+            delete_cube(previous_cubes[i])
+
+        # If path exists
+        if path_points:
+            # Create cube for current frame
+            cube_name = f"PathCube_Path_{i}_Frame_{current_frame}"
+            create_cube((path_points[current_frame % len(path_points)][0], path_points[current_frame % len(path_points)][1], 0), cube_name)
+            # Update obstacle positions to include the new path cube
+            obstacle_positions.add(path_points[current_frame % len(path_points)])
+            # Update previous cubes
+            previous_cubes[i] = cube_name
+
+# Register the frame change handler
+bpy.app.handlers.frame_change_post.append(generate_paths)

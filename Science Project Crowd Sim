@@ -6,8 +6,21 @@ def create_cube(location, name):
     bpy.ops.mesh.primitive_cube_add(size=1, location=location)
     bpy.context.object.name = name  # Assign a specific name to the cube
 
-# Function to delete cube by name
-def delete_cube(name):
+# Function to create a ghost cube
+def create_ghost_cube(location):
+    ghost_cube_name = f"GhostCube_{location[0]}_{location[1]}"
+    bpy.ops.mesh.primitive_cube_add(size=0.125, location=location)  # Adjusted size for ghost cube
+    bpy.context.object.name = ghost_cube_name
+    return ghost_cube_name
+
+# Function to create a text object
+def create_text(location, text, name):
+    bpy.ops.object.text_add(location=location)
+    bpy.context.object.data.body = text
+    bpy.context.object.name = name  # Assign a specific name to the text object
+
+# Function to delete object by name
+def delete_object(name):
     bpy.data.objects.remove(bpy.data.objects[name], do_unlink=True)
 
 # Function to get mesh objects in the scene
@@ -15,8 +28,8 @@ def get_mesh_objects():
     return [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
 
 # Function to perform A* pathfinding
-def astar(start, end, obstacles, walls):
-    # Define possible movement directions (12-way movement: up, down, left, right, and diagonals)
+def astar(start, end, obstacles, walls, speed):
+    # Define possible movement directions based on speed
     directions = [
         (0, 1), (0, -1), (1, 0), (-1, 0), 
         (1, 1), (-1, 1), (1, -1), (-1, -1),
@@ -24,6 +37,8 @@ def astar(start, end, obstacles, walls):
         (1, 2), (1, -2), (-1, 2), (-1, -2),
         (2, 1), (2, -1), (-2, 1), (-2, -1)
     ]
+    # Adjust directions based on speed
+    directions = [(dx / speed, dy / speed) for dx, dy in directions]
 
     # Define heuristic function (Euclidean distance)
     def heuristic(node):
@@ -76,11 +91,11 @@ mesh_objects = get_mesh_objects()
 # Extract obstacle positions
 obstacle_positions = extract_obstacle_positions(mesh_objects)
 
-# Define paths with start and end points using cube names
+# Define paths with start and end points using cube names and speed
 paths = [
-    {"start_cube_name": "Cube.004", "end_cube_name": "Cube.011"},
-    {"start_cube_name": "Cube.007", "end_cube_name": "Cube.010"},
-    {"start_cube_name": "Cube.009", "end_cube_name": "Cube.010"}
+    {"start_cube_name": "Cube.004", "end_cube_name": "Cube.011", "speed": 2},
+    {"start_cube_name": "Cube.007", "end_cube_name": "Cube.010", "speed": 2},
+    {"start_cube_name": "Cube.009", "end_cube_name": "Cube.010", "speed": 4},
 ]
 
 # Define wall start and end coordinates for multiple walls
@@ -93,12 +108,12 @@ for wall_start, wall_end in wall_start_end_coordinates:
         for y in range(min(wall_start[1], wall_end[1]), max(wall_start[1], wall_end[1]) + 1):
             wall_positions.append((x, y))
 
-# Variable to keep track of previous cubes for each path
-previous_cubes = {}
+# Variable to keep track of previous objects for each path
+previous_objects = {}
 
 # Function to generate paths for each frame
 def generate_paths(scene):
-    global previous_cubes
+    global previous_objects
 
     # Get current frame number
     current_frame = scene.frame_current
@@ -108,6 +123,7 @@ def generate_paths(scene):
         # Get start and end points from cube names
         start_point = None
         end_point = None
+        speed = path["speed"]
         for obj in bpy.context.scene.objects:
             if obj.name == path["start_cube_name"]:
                 start_point = (round(obj.location.x), round(obj.location.y))
@@ -117,21 +133,79 @@ def generate_paths(scene):
                 break
 
         # Perform pathfinding for the current path
-        path_points = astar(start_point, end_point, obstacle_positions, wall_positions)
+        path_points = astar(start_point, end_point, obstacle_positions, wall_positions, speed)
 
-        # Delete previous cubes if exist and if path is not completed
-        if i in previous_cubes and current_frame < len(path_points):
-            delete_cube(previous_cubes[i])
+        # Delete previous objects if exist and if path is not completed
+        if i in previous_objects and current_frame < len(path_points):
+            delete_object(previous_objects[i])
 
         # If path exists
         if path_points:
-            # Create cube for current frame
-            cube_name = f"PathCube_Path_{i}_Frame_{current_frame}"
-            create_cube((path_points[current_frame % len(path_points)][0], path_points[current_frame % len(path_points)][1], 0), cube_name)
-            # Update obstacle positions to include the new path cube
-            obstacle_positions.add(path_points[current_frame % len(path_points)])
-            # Update previous cubes
-            previous_cubes[i] = cube_name
+            # Create object for current frame
+            object_name = f"PathObject_Path_{i}_Frame_{current_frame}"
+            path_object_location = path_points[current_frame % len(path_points)]
+            create_cube((path_object_location[0], path_object_location[1], 0), object_name)
+            # Create ghost cube for the same location
+            create_ghost_cube((path_object_location[0], path_object_location[1], 0))  # Create ghost cube
+            # Update obstacle positions to include the new path object
+            obstacle_positions.add(path_object_location)
+            # Update previous objects
+            previous_objects[i] = object_name
+
+    # Check for missing path objects
+    for i in range(len(paths)):
+        expected_object_name = f"PathObject_Path_{i}_Frame_{current_frame}"
+        if expected_object_name not in bpy.data.objects:
+            print(f"Missing path object for path {i} at frame {current_frame}")
+            # Generate the missing path object
+            path = paths[i]
+            start_point = None
+            end_point = None
+            speed = path["speed"]
+            for obj in bpy.context.scene.objects:
+                if obj.name == path["start_cube_name"]:
+                    start_point = (round(obj.location.x), round(obj.location.y))
+                elif obj.name == path["end_cube_name"]:
+                    end_point = (round(obj.location.x), round(obj.location.y))
+                if start_point and end_point:
+                    break
+
+            path_points = astar(start_point, end_point, obstacle_positions, wall_positions, speed)
+            if path_points:
+                object_name = expected_object_name
+                path_object_location = path_points[current_frame % len(path_points)]
+                create_cube((path_object_location[0], path_object_location[1], 0), object_name)
+                # Create ghost cube for the same location
+                create_ghost_cube((path_object_location[0], path_object_location[1], 0))  # Create ghost cube
+                # Update obstacle positions to include the new path object
+                obstacle_positions.add(path_object_location)
+                # Update previous objects
+                previous_objects[i] = object_name
+
+# Function to check adjacency and generate "FIGHT" text
+def generate_fight_text(scene):
+    # Get all objects in the scene
+    objects = bpy.context.scene.objects
+    
+    # Iterate through each object
+    for obj1 in objects:
+        # Check if the object is a mesh and not a ghost cube
+        if obj1.type == 'MESH' and not obj1.name.startswith("GhostCube_"):
+            # Get the location of the first object
+            loc1 = obj1.location
+            # Iterate through each object again
+            for obj2 in objects:
+                # Check if the second object is different from the first one, is a mesh, and not a ghost cube
+                if obj1 != obj2 and obj2.type == 'MESH' and not obj2.name.startswith("GhostCube_"):
+                    # Get the location of the second object
+                    loc2 = obj2.location
+                    # Check if the objects are right next to each other
+                    if (loc1 - loc2).length < 0.6:  # Adjust this threshold as needed
+                        # Generate "FIGHT" text object halfway between the two objects
+                        fight_text_location = ((loc1.x + loc2.x) / 2, (loc1.y + loc2.y) / 2, (loc1.z + loc2.z) / 2)
+                        create_text(fight_text_location, "FIGHT", "FIGHT_TEXT")
 
 # Register the frame change handler
+bpy.app.handlers.frame_change_post.clear()  # Clear existing handlers to avoid duplicates
 bpy.app.handlers.frame_change_post.append(generate_paths)
+bpy.app.handlers.frame_change_post.append(generate_fight_text)

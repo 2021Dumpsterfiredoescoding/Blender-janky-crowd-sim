@@ -62,7 +62,7 @@ def astar(start, end, obstacles, walls, speed):
 
         for direction in directions:
             neighbor = (current_node[0] + direction[0], current_node[1] + direction[1])
-            if neighbor in obstacles or neighbor in walls or not (0 <= neighbor[0] < grid_size[0] and 0 <= neighbor[1] < grid_size[1]):
+            if neighbor in obstacles or any(neighbor in wall for wall in walls) or not (0 <= neighbor[0] < grid_size[0] and 0 <= neighbor[1] < grid_size[1]):
                 continue
             tentative_g_score = g_score[current_node] + 1
             if neighbor not in g_score or tentative_g_score < g_score[neighbor]:
@@ -98,15 +98,19 @@ paths = [
     {"start_cube_name": "Cube.009", "end_cube_name": "Cube.010", "speed": 4},
 ]
 
-# Define wall start and end coordinates for multiple walls
-wall_start_end_coordinates = [((48, 73), (48, 24)), ((23, 73), (23, 24)), ((23, 24), (48, 24)), ((48, 73), (57, 73)), ((57, 73), (57, 13))]  # Example: [(wall1_start, wall1_end), (wall2_start, wall2_end), ...]
+# Define cube names for wall points
+wall_cube_names = [
+    ["Cube.001", "Cube.002", "Cube.003"],  # Wall 1
+    ["Cube.005", "Cube.006"],  # Wall 2
+    ["Cube.008"],  # Wall 3
+    ["Cube.012", "Cube.013", "Cube.014"]  # Wall 4
+]
 
-# Generate wall positions for multiple walls
-wall_positions = []
-for wall_start, wall_end in wall_start_end_coordinates:
-    for x in range(min(wall_start[0], wall_end[0]), max(wall_start[0], wall_end[0]) + 1):
-        for y in range(min(wall_start[1], wall_end[1]), max(wall_start[1], wall_end[1]) + 1):
-            wall_positions.append((x, y))
+# Generate wall positions from cube names
+wall_positions = [[(round(obj.location.x), round(obj.location.y)) for obj in bpy.context.scene.objects if obj.name in wall] for wall in wall_cube_names]
+
+# Flatten the list of wall positions
+wall_positions = [pos for sublist in wall_positions for pos in sublist]
 
 # Variable to keep track of previous objects for each path
 previous_objects = {}
